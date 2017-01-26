@@ -929,11 +929,11 @@ class Leaderboard
     ending_offset = (starting_offset + page_size) - 1
 
     raw_leader_data = @reverse ?
-      @redis_connection.zrange(leaderboard_name, starting_offset, ending_offset, :with_scores => false) :
-      @redis_connection.zrevrange(leaderboard_name, starting_offset, ending_offset, :with_scores => false)
+      @redis_connection.zrange(leaderboard_name, starting_offset, ending_offset, :with_scores => true) :
+      @redis_connection.zrevrange(leaderboard_name, starting_offset, ending_offset, :with_scores => true)
 
     if raw_leader_data
-      return ranked_in_list_in(leaderboard_name, raw_leader_data, leaderboard_options)
+      return ranked_in_list_in_scores(leaderboard_name, raw_leader_data, starting_offset, leaderboard_options)
     else
       return []
     end
@@ -985,6 +985,49 @@ class Leaderboard
       end
 
       ranks_for_members << data
+    end
+
+    if leaderboard_options[:with_member_data]
+      included_members = ranks_for_members.collect { |member| member[@member_key] }
+      members_data_for_in(leaderboard_name, included_members).each_with_index do |member_data, index|
+        ranks_for_members[index][@member_data_key] = member_data
+      end
+    end
+
+    case leaderboard_options[:sort_by]
+    when :rank
+      ranks_for_members = ranks_for_members.sort_by { |member| member[@rank_key] }
+    when :score
+      ranks_for_members = ranks_for_members.sort_by { |member| member[@score_key] }
+    end
+
+    ranks_for_members
+  end
+
+  # Retrieve a page of leaders from the named leaderboard for a given list of members.
+  #
+  # @param leaderboard_name [String] Name of the leaderboard.
+  # @param members [Array] Member names.
+  # @param options [Hash] Options to be used when retrieving the page from the named leaderboard.
+  #
+  # @return a page of leaders from the named leaderboard for a given list of members.
+  def ranked_in_list_in_scores(leaderboard_name, members, starting_rank, options = {})
+    leaderboard_options = DEFAULT_LEADERBOARD_REQUEST_OPTIONS.dup
+    leaderboard_options.merge!(options)
+
+    ranks_for_members = []
+    current_rank = starting_rank + 1
+
+    members.each_with_index do |member, index|
+      data = {}
+      data[@member_key] = member[0]
+      unless leaderboard_options[:members_only]
+        data[@rank_key] = current_rank
+        data[@score_key] = member[1].to_f
+      end
+
+      ranks_for_members << data
+      current_rank += 1
     end
 
     if leaderboard_options[:with_member_data]
